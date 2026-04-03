@@ -20,8 +20,6 @@ STATUS_HAVE = "have"
 DEFAULT_ACCOUNT = "default"
 CALLBACK_PREFIX = "gchk"
 CALLBACK_TOGGLE = "tgl"
-CALLBACK_DONE = "done"
-CALLBACK_CLEAR = "clear"
 CALLBACK_VIEW = "view"
 VIEW_NEEDED = "needed"
 VIEW_ALL = "all"
@@ -287,7 +285,7 @@ def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED, pending_ids: 
         else:
             body.append("Nothing pending.")
         body.append("")
-        body.append("Tap items to check them, then tap Done.")
+        body.append("Tap an item to mark it bought.")
 
         row: list[dict[str, str]] = []
         for item in needed:
@@ -301,11 +299,6 @@ def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED, pending_ids: 
                 row = []
         if row:
             buttons.append(row)
-        footer_row = [
-            {"text": "Done", "callback_data": f"{CALLBACK_PREFIX}:{CALLBACK_DONE}:needed"},
-            {"text": "Clear", "callback_data": f"{CALLBACK_PREFIX}:{CALLBACK_CLEAR}:needed"},
-        ]
-        buttons.append(footer_row)
         buttons.append([{"text": "Pantry View", "callback_data": f"{CALLBACK_PREFIX}:{CALLBACK_VIEW}:{VIEW_ALL}"}])
     return {
         "message": "\n".join(body).strip(),
@@ -459,18 +452,8 @@ def handle_callback(state: dict[str, Any], callback: str, target: str, account: 
         raise RuntimeError("Unsupported callback payload.")
     action, value = parsed
     view = resolve_view(state, account, target, thread_id)
-    pending_ids = set(view.get("pending_ids", []))
     if action == CALLBACK_TOGGLE:
-        if value in pending_ids:
-            pending_ids.remove(value)
-        else:
-            pending_ids.add(value)
-        view["pending_ids"] = sorted(pending_ids)
-        return edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=VIEW_NEEDED, dry_run=dry_run)
-    if action == CALLBACK_DONE:
-        return commit_pending(state, target=target, account=account, thread_id=thread_id, dry_run=dry_run)
-    if action == CALLBACK_CLEAR:
-        return clear_pending(state, target=target, account=account, thread_id=thread_id, dry_run=dry_run)
+        return toggle_pending(state, item_id=value, target=target, account=account, thread_id=thread_id, dry_run=dry_run)
     if action == CALLBACK_VIEW:
         mode = VIEW_ALL if value == VIEW_ALL else VIEW_NEEDED
         if view.get("message_id"):
@@ -482,16 +465,16 @@ def handle_callback(state: dict[str, Any], callback: str, target: str, account: 
 
 
 def toggle_pending(state: dict[str, Any], item_id: str, target: str, account: str, thread_id: str | None, dry_run: bool) -> dict[str, Any]:
+    item = state["items"].get(item_id)
+    if not item:
+        raise RuntimeError("Grocery item not found.")
+    item["status"] = STATUS_HAVE
+    item["updated_at"] = utc_now()
     view = resolve_view(state, account, target, thread_id)
     pending_ids = set(view.get("pending_ids", []))
-    if item_id in pending_ids:
-        pending_ids.remove(item_id)
-    else:
-        if item_id not in state["items"]:
-            raise RuntimeError("Grocery item not found.")
-        pending_ids.add(item_id)
+    pending_ids.discard(item_id)
     view["pending_ids"] = sorted(pending_ids)
-    return edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=VIEW_NEEDED, dry_run=dry_run)
+    return edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=VIEW_NEEDED, dry_run=dry_run, committed=True)
 
 
 def commit_pending(state: dict[str, Any], target: str, account: str, thread_id: str | None, dry_run: bool) -> dict[str, Any]:
@@ -558,18 +541,6 @@ def parse_args() -> argparse.Namespace:
     toggle.add_argument("--account", default=DEFAULT_ACCOUNT)
     toggle.add_argument("--thread-id")
     toggle.add_argument("--dry-run", action="store_true")
-
-    done = sub.add_parser("done")
-    done.add_argument("--target", required=True)
-    done.add_argument("--account", default=DEFAULT_ACCOUNT)
-    done.add_argument("--thread-id")
-    done.add_argument("--dry-run", action="store_true")
-
-    clear = sub.add_parser("clear-selection")
-    clear.add_argument("--target", required=True)
-    clear.add_argument("--account", default=DEFAULT_ACCOUNT)
-    clear.add_argument("--thread-id")
-    clear.add_argument("--dry-run", action="store_true")
 
     return parser.parse_args()
 
@@ -650,32 +621,6 @@ def main() -> None:
         result = toggle_pending(
             state,
             item_id=args.item_id,
-            target=args.target,
-            account=args.account,
-            thread_id=args.thread_id,
-            dry_run=args.dry_run,
-        )
-        if not args.dry_run:
-            save_state(path, state)
-        print_json(result)
-        return
-
-    if args.command == "done":
-        result = commit_pending(
-            state,
-            target=args.target,
-            account=args.account,
-            thread_id=args.thread_id,
-            dry_run=args.dry_run,
-        )
-        if not args.dry_run:
-            save_state(path, state)
-        print_json(result)
-        return
-
-    if args.command == "clear-selection":
-        result = clear_pending(
-            state,
             target=args.target,
             account=args.account,
             thread_id=args.thread_id,
