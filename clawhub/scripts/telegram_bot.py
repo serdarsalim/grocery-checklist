@@ -155,12 +155,52 @@ def parse_rename_intent(text: str) -> tuple[str, str] | None:
     return None
 
 
+def extract_need_items(text: str) -> list[str]:
+    patterns = [
+        r"^(?:i|we)\s+ran out of\s+(.+)$",
+        r"^(?:i|we)\s+(?:don't|dont|do not)\s+have\s+(.+?)(?:\s+in stock)?$",
+        r"^(?:i|we)\s+need to buy\s+(.+)$",
+        r"^(?:i|we)\s+need\s+(.+)$",
+        r"^(?:we also need)\s+(.+)$",
+        r"^put\s+(.+?)\s+(?:in|on)\s+the shopping list$",
+        r"^put\s+(.+)$",
+        r"^add\s+(.+?)\s+to groceries$",
+        r"^add\s+(.+?)\s+to the shopping list$",
+        r"^add\s+(.+)$",
+    ]
+    stripped = text.strip()
+    for pattern in patterns:
+        match = re.match(pattern, stripped, flags=re.IGNORECASE)
+        if match:
+            return split_items(match.group(1))
+    return []
+
+
+def extract_have_items(text: str) -> list[str]:
+    patterns = [
+        r"^(?:i|we)\s+bought\s+(.+)$",
+        r"^(?:i|we)\s+got\s+(.+)$",
+        r"^(?:i|we)\s+picked up\s+(.+)$",
+        r"^mark\s+(.+?)\s+bought$",
+        r"^mark\s+(.+?)\s+as bought$",
+        r"^i have\s+(.+)$",
+    ]
+    stripped = text.strip()
+    for pattern in patterns:
+        match = re.match(pattern, stripped, flags=re.IGNORECASE)
+        if match:
+            return split_items(match.group(1))
+    return []
+
+
 def is_shopping_view_intent(lower: str) -> bool:
-    if "shopping view" in lower or "shopping list" in lower:
+    if "show me" in lower and ("shopping view" in lower or "shopping list" in lower):
         return True
-    if "need to buy" in lower:
+    if lower in {"shopping view", "shopping list"}:
         return True
     if "i'm shopping" in lower or "im shopping" in lower:
+        return True
+    if "what do i need to buy" in lower:
         return True
     return False
 
@@ -181,14 +221,6 @@ def is_greeting(lower: str) -> bool:
 def handle_text(chat_id: str, sender_id: str, text: str) -> None:
     lower = text.lower().strip()
 
-    if is_shopping_view_intent(lower):
-        run_wrapper(["render-telegram", "--target", sender_id, "--account", "grocery"])
-        return
-
-    if is_pantry_view_intent(lower):
-        run_wrapper(["render-telegram", "--target", sender_id, "--account", "grocery", "--mode", "all"])
-        return
-
     if is_greeting(lower):
         send_text(chat_id, "I'm here.")
         return
@@ -207,24 +239,25 @@ def handle_text(chat_id: str, sender_id: str, text: str) -> None:
         send_text(chat_id, f"Merged into {destination}.")
         return
 
-    if any(phrase in lower for phrase in ["ran out", "need ", "add to groceries", "add ", "we also need"]):
-        payload = text
-        payload = re.sub(r"^(we also need|i need|we need|add to groceries|add)\s+", "", payload, flags=re.IGNORECASE)
-        payload = re.sub(r"^(i ran out of|we ran out of)\s+", "", payload, flags=re.IGNORECASE)
-        items = split_items(payload)
-        if items:
-            run_wrapper(["need", *items])
-            send_text(chat_id, "Added to groceries.")
-            return
+    if is_shopping_view_intent(lower):
+        run_wrapper(["render-telegram", "--target", sender_id, "--account", "grocery"])
+        return
 
-    if any(phrase in lower for phrase in ["i bought", "we bought", "got ", "picked up", "mark bought"]):
-        payload = text
-        payload = re.sub(r"^(i bought|we bought|got|picked up|mark bought)\s+", "", payload, flags=re.IGNORECASE)
-        items = split_items(payload)
-        if items:
-            run_wrapper(["have", *items])
-            send_text(chat_id, "Updated pantry.")
-            return
+    if is_pantry_view_intent(lower):
+        run_wrapper(["render-telegram", "--target", sender_id, "--account", "grocery", "--mode", "all"])
+        return
+
+    need_items = extract_need_items(text)
+    if need_items:
+        run_wrapper(["need", *need_items])
+        send_text(chat_id, "Added to groceries.")
+        return
+
+    have_items = extract_have_items(text)
+    if have_items:
+        run_wrapper(["have", *have_items])
+        send_text(chat_id, "Updated pantry.")
+        return
 
     send_text(chat_id, "Tell me what grocery action you want.")
 
