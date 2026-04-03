@@ -238,6 +238,20 @@ def merge_items(state: dict[str, Any], destination_name: str, source_names: list
     }
 
 
+def rename_item(state: dict[str, Any], source_name: str, destination_name: str) -> dict[str, Any]:
+    normalized_source = normalize_name(source_name)
+    source_id = item_id_for(normalized_source)
+    source = state["items"].get(source_id)
+    if not source:
+        raise RuntimeError(f"Grocery item not found: {source_name}")
+
+    result = merge_items(state, destination_name, [source_name])
+    destination = result["item"]
+    destination["status"] = source.get("status", destination.get("status", STATUS_HAVE))
+    destination["updated_at"] = utc_now()
+    return result
+
+
 def sorted_items(state: dict[str, Any], status: str | None = None) -> list[dict[str, Any]]:
     items = list(state["items"].values())
     if status in {STATUS_NEEDED, STATUS_HAVE}:
@@ -555,6 +569,10 @@ def parse_args() -> argparse.Namespace:
     merge.add_argument("destination")
     merge.add_argument("sources", nargs="+")
 
+    rename = sub.add_parser("rename")
+    rename.add_argument("source")
+    rename.add_argument("destination")
+
     show = sub.add_parser("show")
     show.add_argument("--mode", choices=[VIEW_NEEDED, VIEW_ALL], default=VIEW_NEEDED)
     show.add_argument("--json", action="store_true")
@@ -624,6 +642,22 @@ def main() -> None:
                 "status": result["item"]["status"],
             },
             "merged": result["merged"],
+        })
+        return
+
+    if args.command == "rename":
+        result = rename_item(state, args.source, args.destination)
+        changed = True
+        save_state(path, state)
+        print_json({
+            "ok": True,
+            "state_file": str(path),
+            "item": {
+                "id": result["item"]["id"],
+                "name": result["item"]["name"],
+                "status": result["item"]["status"],
+            },
+            "renamed": args.source,
         })
         return
 
