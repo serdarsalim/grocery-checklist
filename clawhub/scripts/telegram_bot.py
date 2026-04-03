@@ -111,6 +111,18 @@ def split_items(raw: str) -> list[str]:
     return items
 
 
+def normalize_item_phrase(raw: str) -> str:
+    cleaned = re.sub(r"\s+", " ", raw).strip(" .")
+    cleaned = re.sub(r"^(?:also\s+|just\s+|please\s+)", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\s+(?:in|on)\s+(?:the\s+)?shopping list$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    return cleaned.strip(" .")
+
+
 def parse_merge_intent(text: str) -> tuple[str, list[str]] | None:
     lower = text.lower().strip()
     match = re.search(r"merge\s+(.+?)\s+into\s+(.+)$", lower)
@@ -159,20 +171,24 @@ def extract_need_items(text: str) -> list[str]:
     patterns = [
         r"^(?:i|we)\s+ran out of\s+(.+)$",
         r"^(?:i|we)\s+(?:don't|dont|do not)\s+have\s+(.+?)(?:\s+in stock)?$",
-        r"^(?:i|we)\s+need to buy\s+(.+)$",
-        r"^(?:i|we)\s+need\s+(.+)$",
-        r"^(?:we also need)\s+(.+)$",
-        r"^put\s+(.+?)\s+(?:in|on)\s+the shopping list$",
-        r"^put\s+(.+)$",
+        r"^(?:i|we)\s+(?:also\s+)?need to buy\s+(.+)$",
+        r"^(?:i|we)\s+(?:also\s+)?need\s+(.+)$",
+        r"^(?:we\s+also\s+need)\s+(.+)$",
+        r"^(?:also\s+)?need to buy\s+(.+)$",
+        r"^put\s+(.+?)\s+(?:in|on)\s+(?:the\s+)?shopping list$",
+        r"^put\s+(.+?)\s+on\s+the list$",
+        r"^put\s+(.+?)\s+in groceries$",
         r"^add\s+(.+?)\s+to groceries$",
         r"^add\s+(.+?)\s+to the shopping list$",
-        r"^add\s+(.+)$",
+        r"^add\s+(.+?)\s+to the list$",
     ]
     stripped = text.strip()
     for pattern in patterns:
         match = re.match(pattern, stripped, flags=re.IGNORECASE)
         if match:
-            return split_items(match.group(1))
+            normalized = normalize_item_phrase(match.group(1))
+            if normalized:
+                return split_items(normalized)
     return []
 
 
