@@ -200,6 +200,44 @@ def remove_items(state: dict[str, Any], raw_items: list[str]) -> list[str]:
     return removed
 
 
+def merge_items(state: dict[str, Any], destination_name: str, source_names: list[str]) -> dict[str, Any]:
+    destination_normalized = normalize_name(destination_name)
+    destination_id = item_id_for(destination_normalized)
+    destination_existing = state.get("items", {}).get(destination_id)
+    destination = get_or_create_item(state, destination_name)
+    merged_names: list[str] = []
+    statuses: set[str] = set()
+    if destination_existing:
+        statuses.add(destination.get("status", STATUS_HAVE))
+
+    source_ids = []
+    for raw_name in split_item_tokens(source_names):
+        normalized = normalize_name(raw_name)
+        item_id = item_id_for(normalized)
+        if item_id == destination["id"]:
+            continue
+        source_ids.append(item_id)
+
+    for item_id in source_ids:
+        item = state["items"].get(item_id)
+        if not item:
+            continue
+        merged_names.append(item.get("name", item_id))
+        statuses.add(item.get("status", STATUS_HAVE))
+        state["items"].pop(item_id, None)
+
+    source_statuses = statuses.copy()
+    if destination_existing:
+        source_statuses.discard(destination.get("status", STATUS_HAVE))
+    effective_statuses = source_statuses or statuses
+    destination["status"] = STATUS_NEEDED if STATUS_NEEDED in effective_statuses else STATUS_HAVE
+    destination["updated_at"] = utc_now()
+    return {
+        "item": destination,
+        "merged": merged_names,
+    }
+
+
 def sorted_items(state: dict[str, Any], status: str | None = None) -> list[dict[str, Any]]:
     items = list(state["items"].values())
     if status in {STATUS_NEEDED, STATUS_HAVE}:
@@ -513,6 +551,10 @@ def parse_args() -> argparse.Namespace:
     remove = sub.add_parser("remove")
     remove.add_argument("items", nargs="+")
 
+    merge = sub.add_parser("merge")
+    merge.add_argument("destination")
+    merge.add_argument("sources", nargs="+")
+
     show = sub.add_parser("show")
     show.add_argument("--mode", choices=[VIEW_NEEDED, VIEW_ALL], default=VIEW_NEEDED)
     show.add_argument("--json", action="store_true")
@@ -567,6 +609,22 @@ def main() -> None:
         changed = True
         save_state(path, state)
         print_json({"ok": True, "removed": removed, "state_file": str(path)})
+        return
+
+    if args.command == "merge":
+        result = merge_items(state, args.destination, args.sources)
+        changed = True
+        save_state(path, state)
+        print_json({
+            "ok": True,
+            "state_file": str(path),
+            "item": {
+                "id": result["item"]["id"],
+                "name": result["item"]["name"],
+                "status": result["item"]["status"],
+            },
+            "merged": result["merged"],
+        })
         return
 
     if args.command == "show":
