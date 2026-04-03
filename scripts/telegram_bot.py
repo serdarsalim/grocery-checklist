@@ -138,15 +138,56 @@ def parse_merge_intent(text: str) -> tuple[str, list[str]] | None:
     return None
 
 
+def parse_rename_intent(text: str) -> tuple[str, str] | None:
+    lower = text.lower().strip()
+    match = re.search(r"rename\s+(.+?)\s+to\s+(.+)$", lower)
+    if match:
+        source = re.sub(r"\s+", " ", match.group(1)).strip()
+        destination = re.sub(r"\s+", " ", match.group(2)).strip()
+        if source and destination:
+            return source, destination
+    match = re.search(r"change\s+(.+?)\s+to\s+(.+)$", lower)
+    if match:
+        source = re.sub(r"\s+", " ", match.group(1)).strip()
+        destination = re.sub(r"\s+", " ", match.group(2)).strip()
+        if source and destination:
+            return source, destination
+    return None
+
+
 def handle_text(chat_id: str, sender_id: str, text: str) -> None:
     lower = text.lower().strip()
 
-    if lower in {"show me shopping view", "shopping view", "what do i need to buy", "show shopping view"}:
+    if lower in {
+        "show me shopping view",
+        "shopping view",
+        "what do i need to buy",
+        "show shopping view",
+        "show me the shopping list",
+        "show shopping list",
+        "shopping list",
+        "i'm shopping now",
+        "im shopping now",
+    }:
         run_wrapper(["render-telegram", "--target", sender_id, "--account", "grocery"])
         return
 
-    if lower in {"show me the pantry", "show pantry", "pantry view", "what do i have", "what's in the pantry"}:
+    if lower in {
+        "show me the pantry",
+        "show pantry",
+        "pantry view",
+        "what do i have",
+        "what's in the pantry",
+        "whats in the pantry",
+    }:
         run_wrapper(["render-telegram", "--target", sender_id, "--account", "grocery", "--mode", "all"])
+        return
+
+    rename = parse_rename_intent(text)
+    if rename:
+        source, destination = rename
+        run_wrapper(["rename", source, destination])
+        send_text(chat_id, f"Renamed to {destination}.")
         return
 
     merge = parse_merge_intent(text)
@@ -175,7 +216,7 @@ def handle_text(chat_id: str, sender_id: str, text: str) -> None:
             send_text(chat_id, "Updated pantry.")
             return
 
-    send_text(chat_id, "I can manage groceries, pantry view, shopping view, and item merges.")
+    return
 
 
 def handle_callback(callback: dict[str, Any]) -> None:
