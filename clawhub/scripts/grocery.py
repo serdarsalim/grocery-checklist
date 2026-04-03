@@ -42,6 +42,48 @@ def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
+def salvage_json_object(raw: str) -> tuple[dict[str, Any], bool]:
+    decoder = json.JSONDecoder()
+    parsed, end = decoder.raw_decode(raw)
+    if not isinstance(parsed, dict):
+        raise SystemExit("State file is invalid.")
+    trailing = raw[end:].strip()
+    return parsed, bool(trailing)
+
+
+def prune_corrupted_items(state: dict[str, Any]) -> bool:
+    items = state.get("items")
+    if not isinstance(items, dict):
+        state["items"] = {}
+        return True
+
+    changed = False
+    remove_ids: list[str] = []
+    for item_id, item in items.items():
+        if not isinstance(item, dict):
+            remove_ids.append(item_id)
+            changed = True
+            continue
+        name = str(item.get("name", "")).strip()
+        normalized = normalize_name(name) if name else ""
+        if (
+            re.fullmatch(r"[0-9a-f]{10}", normalized)
+            and normalized in items
+            and normalized != item_id
+        ):
+            remove_ids.append(item_id)
+            changed = True
+            continue
+        if name and item.get("normalized") != normalized:
+            item["normalized"] = normalized
+            changed = True
+
+    for item_id in remove_ids:
+        items.pop(item_id, None)
+
+    return changed
+
+
 def load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {
@@ -50,21 +92,28 @@ def load_state(path: Path) -> dict[str, Any]:
             "items": {},
             "views": {},
         }
-    with path.open("r", encoding="utf-8") as fh:
-        data = json.load(fh)
+    repaired = False
+    raw = path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data, repaired = salvage_json_object(raw)
     if not isinstance(data, dict):
         raise SystemExit("State file is invalid.")
     data.setdefault("version", 1)
     data.setdefault("updated_at", utc_now())
     data.setdefault("items", {})
     data.setdefault("views", {})
+    repaired = prune_corrupted_items(data) or repaired
+    if repaired:
+        save_state(path, data)
     return data
 
 
 def save_state(path: Path, state: dict[str, Any]) -> None:
     ensure_parent(path)
     state["updated_at"] = utc_now()
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         json.dump(state, fh, indent=2, sort_keys=True)
         fh.write("\n")

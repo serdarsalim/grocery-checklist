@@ -13,6 +13,7 @@ This skill is intentionally small and local-first.
 - Use `/Users/slm/.openclaw/skills/grocery-checklist/scripts/grocery.sh` directly.
 - Prefer item-state mutations over chatty explanations.
 - Treat `ran out`, `need`, `add to groceries`, `shopping list`, and `buy list` as grocery intents.
+- Treat `show me the pantry`, `show pantry`, `pantry view`, `what do I have`, and `what's in the pantry` as full pantry view intents.
 - Treat `bought`, `got`, `picked up`, and `mark done` as `have`.
 - When a Telegram callback contains `gchk:`, run `handle-callback` and let the script redraw the checklist.
 - Parse `sender_id` from the incoming Telegram metadata when present.
