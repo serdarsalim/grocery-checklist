@@ -393,19 +393,25 @@ def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED, session_ids: 
     if mode == VIEW_ALL:
         body.append("Pantry")
         body.append("")
-        body.append("Need to buy:")
-        if needed:
-            for idx, item in enumerate(needed, 1):
-                body.append(f"{idx}. {item['name']}")
+        all_items = needed + have
+        if all_items:
+            by_cat: dict[str, list] = defaultdict(list)
+            for item in all_items:
+                by_cat[categorize_item(item["name"])].append(item)
+            for cat in _CATEGORY_ORDER:
+                cat_items = by_cat.get(cat, [])
+                if not cat_items:
+                    continue
+                body.append(f"<b>{html_escape(cat)}</b>")
+                for item in cat_items:
+                    if item["status"] == STATUS_NEEDED:
+                        body.append(f"☐ {html_escape(item['name'])}")
+                    else:
+                        body.append(f"✓ {html_escape(item['name'])}")
+                body.append("")
         else:
-            body.append("Nothing pending.")
-        body.append("")
-        body.append("In stock:")
-        if have:
-            for item in have:
-                body.append(f"- {item['name']}")
-        else:
-            body.append("Nothing marked as in stock yet.")
+            body.append("Nothing here yet.")
+            body.append("")
         buttons.append([{"text": "Shopping View", "callback_data": f"{CALLBACK_PREFIX}:{CALLBACK_VIEW}:{VIEW_NEEDED}"}])
     else:
         body.append("Groceries to buy")
