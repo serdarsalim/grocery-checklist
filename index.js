@@ -19,11 +19,11 @@ function callGrocery(args) {
 }
 
 export default function register(api) {
+    // Intercept gchk: button callbacks instantly, before Claude sees them.
     api.registerInteractiveHandler({
         channel: 'telegram',
         namespace: 'gchk',
         handler: async ({ callback, senderId }) => {
-            // callback.chatId is the chat where the message lives (== senderId for DMs)
             const target = String(callback.chatId || senderId);
             try {
                 callGrocery([
@@ -32,9 +32,41 @@ export default function register(api) {
                     '--account', 'grocery',
                 ]);
             } catch (err) {
-                // Log but don't crash — OpenClaw already answered the callback query
                 console.error('[grocery-checklist] callback error:', String(err));
             }
         },
     });
+
+    // Expose render as a proper tool so Claude calls it reliably as a
+    // function call rather than trying to compose a bash command.
+    api.registerTool({
+        name: 'render_grocery_view',
+        label: 'Render Grocery View',
+        description: 'Render the grocery shopping list or pantry view as a Telegram inline-keyboard message. Use mode "needed" for the shopping list, "all" for the full pantry.',
+        parameters: {
+            type: 'object',
+            properties: {
+                mode: {
+                    type: 'string',
+                    enum: ['needed', 'all'],
+                    description: '"needed" = shopping list, "all" = pantry view',
+                },
+            },
+            required: [],
+        },
+        async execute(_toolCallId, params, context) {
+            const mode = params?.mode ?? 'needed';
+            const account = 'grocery';
+            // Derive the Telegram target from conversation context if available.
+            const senderId = context?.senderId ?? context?.message?.senderId;
+            const args = ['render-telegram', '--account', account, '--mode', mode];
+            if (senderId) args.push('--target', String(senderId));
+            try {
+                callGrocery(args);
+                return { ok: true };
+            } catch (err) {
+                return { ok: false, error: String(err) };
+            }
+        },
+    }, { name: 'render_grocery_view' });
 }
