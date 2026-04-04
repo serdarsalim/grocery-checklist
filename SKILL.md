@@ -110,10 +110,10 @@ Show current shopping list:
 bash <skill_dir>/scripts/grocery.sh show
 ```
 
-Render the Telegram checklist:
+Render the Telegram checklist (--target is optional; omit to send to all active viewers):
 
 ```bash
-bash <skill_dir>/scripts/grocery.sh render-telegram --target "1351660348" --account grocery
+bash <skill_dir>/scripts/grocery.sh render-telegram --account grocery
 ```
 
 Show items that have been `needed` for more than 14 days:
@@ -131,7 +131,7 @@ bash <skill_dir>/scripts/grocery.sh stale --days 7
 Render pantry view instead:
 
 ```bash
-bash <skill_dir>/scripts/grocery.sh render-telegram --target "1351660348" --account grocery --mode all
+bash <skill_dir>/scripts/grocery.sh render-telegram --account grocery --mode all
 ```
 
 ## Agent rules
@@ -143,7 +143,7 @@ bash <skill_dir>/scripts/grocery.sh render-telegram --target "1351660348" --acco
 - Keep confirmations brief.
 - If the item naming is obviously the same ingredient with different casing or punctuation, treat it as the same item.
 - If the user asks for a full pantry view, use `--mode all`.
-- If `sender_id` is missing, do not guess a Telegram target. Fall back to text.
+- Never fall back to describing the list in text. If render fails, say only "Couldn't render the view."
 - Never summarize the checklist or pantry UI after a Telegram render or callback.
 
 ## Storage

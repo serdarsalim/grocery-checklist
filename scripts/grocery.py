@@ -713,7 +713,7 @@ def parse_args() -> argparse.Namespace:
     stale_cmd.add_argument("--json", action="store_true")
 
     render = sub.add_parser("render-telegram")
-    render.add_argument("--target", required=True)
+    render.add_argument("--target")
     render.add_argument("--account", default=DEFAULT_ACCOUNT)
     render.add_argument("--mode", choices=[VIEW_NEEDED, VIEW_ALL], default=VIEW_NEEDED)
     render.add_argument("--thread-id")
@@ -833,17 +833,34 @@ def main() -> None:
         return
 
     if args.command == "render-telegram":
-        result = send_telegram_view(
-            state,
-            target=args.target,
-            account=args.account,
-            mode=args.mode,
-            thread_id=args.thread_id,
-            dry_run=args.dry_run,
-        )
+        if args.target:
+            targets = [args.target]
+        else:
+            # No target specified: send to all users with an active view for this account,
+            # falling back to the account's allowFrom list in openclaw.json.
+            views = state.get("views", {})
+            targets = [
+                v["target"] for v in views.values()
+                if isinstance(v, dict) and v.get("account") == args.account and v.get("target")
+            ]
+            if not targets:
+                config = json.loads(openclaw_config_path().read_text(encoding="utf-8"))
+                allow = (((config.get("channels") or {}).get("telegram") or {}).get("accounts") or {}).get(args.account, {}).get("allowFrom") or []
+                targets = [str(t) for t in allow]
+        results = []
+        for target in targets:
+            result = send_telegram_view(
+                state,
+                target=target,
+                account=args.account,
+                mode=args.mode,
+                thread_id=args.thread_id,
+                dry_run=args.dry_run,
+            )
+            results.append(result)
         if not args.dry_run:
             save_state(path, state)
-        print_json(result)
+        print_json(results[0] if len(results) == 1 else {"ok": True, "results": results})
         return
 
     if args.command == "handle-callback":
