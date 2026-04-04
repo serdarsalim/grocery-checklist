@@ -5,18 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
+import grocery as _g
+
 
 CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
-WRAPPER_PATH = Path.home() / ".openclaw" / "workspace" / "grocery.sh"
 BOT_STATE_PATH = Path.home() / ".openclaw" / "data" / "grocery-checklist" / "telegram-bot-state.json"
-GROCERY_STATE_PATH = Path.home() / ".openclaw" / "data" / "grocery-checklist" / "state.json"
 
 
 def load_config() -> dict[str, Any]:
@@ -60,24 +59,6 @@ def api(method: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     return decoded
 
 
-def run_wrapper(args: list[str]) -> dict[str, Any]:
-    completed = subprocess.run(
-        [str(WRAPPER_PATH), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError((completed.stderr or completed.stdout or "grocery wrapper failed").strip())
-    stdout = completed.stdout.strip()
-    if not stdout:
-        return {"ok": True}
-    try:
-        return json.loads(stdout)
-    except json.JSONDecodeError:
-        return {"ok": True, "raw": stdout}
-
-
 def send_text(chat_id: str, text: str) -> None:
     api("sendMessage", {"chat_id": chat_id, "text": text})
 
@@ -102,18 +83,51 @@ def save_offset(offset: int) -> None:
     BOT_STATE_PATH.write_text(json.dumps({"offset": offset}, indent=2) + "\n", encoding="utf-8")
 
 
-def load_grocery_state() -> dict[str, Any]:
-    if not GROCERY_STATE_PATH.exists():
-        return {"items": {}}
-    try:
-        data = json.loads(GROCERY_STATE_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {"items": {}}
-    return data if isinstance(data, dict) else {"items": {}}
+# --- Direct grocery calls (no subprocess) ---
+
+def _state() -> tuple[Path, dict[str, Any]]:
+    path = _g.state_path()
+    return path, _g.load_state(path)
+
+
+def grocery_callback(data: str, sender_id: str) -> None:
+    path, state = _state()
+    _g.handle_callback(state, callback=data, target=sender_id, account="grocery", thread_id=None, dry_run=False)
+    _g.save_state(path, state)
+
+
+def grocery_render(sender_id: str, mode: str = _g.VIEW_NEEDED) -> None:
+    path, state = _state()
+    _g.send_telegram_view(state, target=sender_id, account="grocery", mode=mode, thread_id=None, dry_run=False)
+    _g.save_state(path, state)
+
+
+def grocery_need(items: list[str]) -> None:
+    path, state = _state()
+    _g.update_status(state, items, _g.STATUS_NEEDED)
+    _g.save_state(path, state)
+
+
+def grocery_have(items: list[str]) -> None:
+    path, state = _state()
+    _g.update_status(state, items, _g.STATUS_HAVE)
+    _g.save_state(path, state)
+
+
+def grocery_rename(source: str, destination: str) -> None:
+    path, state = _state()
+    _g.rename_item(state, source, destination)
+    _g.save_state(path, state)
+
+
+def grocery_merge(destination: str, sources: list[str]) -> None:
+    path, state = _state()
+    _g.merge_items(state, destination, sources)
+    _g.save_state(path, state)
 
 
 def needed_item_names() -> list[str]:
-    state = load_grocery_state()
+    _, state = _state()
     items = state.get("items") or {}
     names = [
         str(item.get("name", "")).strip()
@@ -122,6 +136,8 @@ def needed_item_names() -> list[str]:
     ]
     return sorted([name for name in names if name], key=str.lower)
 
+
+# --- Intent parsing ---
 
 def split_items(raw: str) -> list[str]:
     parts = re.split(r",|\n|(?:\band\b)", raw, flags=re.IGNORECASE)
@@ -161,7 +177,7 @@ def parse_merge_intent(text: str) -> tuple[str, list[str]] | None:
         if len(tokens) >= 2:
             return destination, tokens
 
-    match = re.search(r"(.+?)\s+shouldn['’]t be separate", lower)
+    match = re.search(r"(.+?)\s+shouldn['']t be separate", lower)
     if match:
         source = re.sub(r"\s+", " ", match.group(1)).strip()
         if " and " in source:
@@ -222,6 +238,24 @@ def extract_have_items(text: str) -> list[str]:
         r"^mark\s+(.+?)\s+bought$",
         r"^mark\s+(.+?)\s+as bought$",
         r"^i have\s+(.+)$",
+    ]
+    stripped = text.strip()
+    for pattern in patterns:
+        match = re.match(pattern, stripped, flags=re.IGNORECASE)
+        if match:
+            return split_items(match.group(1))
+    return []
+
+
+def extract_undo_items(text: str) -> list[str]:
+    patterns = [
+        r"^(?:i|we)\s+didn['']t buy\s+(.+)$",
+        r"^(?:i|we)\s+didn['']t get\s+(.+)$",
+        r"^(?:i|we)\s+didn['']t pick up\s+(.+)$",
+        r"^(?:i|we)\s+forgot\s+(.+)$",
+        r"^(?:i|we)\s+missed\s+(.+)$",
+        r"^missed\s+(.+)$",
+        r"^put\s+(.+?)\s+back\b",
     ]
     stripped = text.strip()
     for pattern in patterns:
@@ -311,35 +345,41 @@ def handle_text(chat_id: str, sender_id: str, text: str) -> None:
     rename = parse_rename_intent(text)
     if rename:
         source, destination = rename
-        run_wrapper(["rename", source, destination])
+        grocery_rename(source, destination)
         send_text(chat_id, f"Renamed to {destination}.")
         return
 
     merge = parse_merge_intent(text)
     if merge:
         destination, sources = merge
-        run_wrapper(["merge", destination, *sources])
+        grocery_merge(destination, sources)
         send_text(chat_id, f"Merged into {destination}.")
         return
 
     if is_shopping_view_intent(lower):
-        run_wrapper(["render-telegram", "--target", sender_id, "--account", "grocery"])
+        grocery_render(sender_id)
         return
 
     if is_pantry_view_intent(lower):
-        run_wrapper(["render-telegram", "--target", sender_id, "--account", "grocery", "--mode", "all"])
+        grocery_render(sender_id, mode=_g.VIEW_ALL)
         return
 
     need_items = extract_need_items(text)
     if need_items:
-        run_wrapper(["need", *need_items])
+        grocery_need(need_items)
         send_text(chat_id, "Added to groceries.")
         return
 
     have_items = extract_have_items(text)
     if have_items:
-        run_wrapper(["have", *have_items])
+        grocery_have(have_items)
         send_text(chat_id, "Updated pantry.")
+        return
+
+    undo_items = extract_undo_items(text)
+    if undo_items:
+        grocery_need(undo_items)
+        send_text(chat_id, "Put back on the shopping list.")
         return
 
     if any(token in lower for token in {"shopping", "grocer", "pantry", "buy"}):
@@ -351,16 +391,13 @@ def handle_text(chat_id: str, sender_id: str, text: str) -> None:
 
 def handle_callback(callback: dict[str, Any]) -> None:
     callback_id = callback.get("id")
-    message = callback.get("message") or {}
-    chat = message.get("chat") or {}
-    chat_id = str(chat.get("id"))
+    if callback_id:
+        answer_callback(callback_id)
     from_user = callback.get("from") or {}
     sender_id = str(from_user.get("id"))
     data = callback.get("data") or ""
     if data.startswith("gchk:"):
-        run_wrapper(["handle-callback", data, "--target", sender_id, "--account", "grocery"])
-    if callback_id:
-        answer_callback(callback_id)
+        grocery_callback(data, sender_id)
 
 
 def poll_forever() -> None:

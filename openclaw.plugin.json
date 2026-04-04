@@ -1,0 +1,10 @@
+{
+  "id": "grocery-checklist",
+  "name": "Grocery Checklist",
+  "description": "Instant Telegram button handling for the grocery checklist skill",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

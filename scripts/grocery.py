@@ -9,7 +9,8 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
@@ -20,6 +21,7 @@ STATUS_HAVE = "have"
 DEFAULT_ACCOUNT = "default"
 CALLBACK_PREFIX = "gchk"
 CALLBACK_TOGGLE = "tgl"
+CALLBACK_COMMIT = "commit"
 CALLBACK_VIEW = "view"
 VIEW_NEEDED = "needed"
 VIEW_ALL = "all"
@@ -82,10 +84,42 @@ def prune_corrupted_items(state: dict[str, Any]) -> bool:
     return changed
 
 
+def migrate_v1_to_v2(state: dict[str, Any]) -> bool:
+    """Re-index item IDs after plural normalization was added in v2."""
+    items = state.get("items")
+    if not isinstance(items, dict):
+        state["version"] = 2
+        return False
+    new_items: dict[str, Any] = {}
+    changed = False
+    for old_id, item in items.items():
+        if not isinstance(item, dict):
+            changed = True
+            continue
+        name = item.get("name", "")
+        new_normalized = normalize_name(name)
+        new_id = item_id_for(new_normalized)
+        item["id"] = new_id
+        item["normalized"] = new_normalized
+        if new_id != old_id:
+            changed = True
+        if new_id in new_items:
+            existing = new_items[new_id]
+            if item.get("status") == STATUS_NEEDED or existing.get("status") == STATUS_NEEDED:
+                existing["status"] = STATUS_NEEDED
+            if item.get("updated_at", "") > existing.get("updated_at", ""):
+                existing["updated_at"] = item["updated_at"]
+        else:
+            new_items[new_id] = item
+    state["items"] = new_items
+    state["version"] = 2
+    return changed
+
+
 def load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {
-            "version": 1,
+            "version": 2,
             "updated_at": utc_now(),
             "items": {},
             "views": {},
@@ -102,6 +136,8 @@ def load_state(path: Path) -> dict[str, Any]:
     data.setdefault("updated_at", utc_now())
     data.setdefault("items", {})
     data.setdefault("views", {})
+    if data.get("version", 1) < 2:
+        repaired = migrate_v1_to_v2(data) or repaired
     repaired = prune_corrupted_items(data) or repaired
     if repaired:
         save_state(path, data)
@@ -118,12 +154,22 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def _depluralize_word(word: str) -> str:
+    if len(word) <= 3:
+        return word
+    if word.endswith("ies") and len(word) > 4:
+        return word[:-3] + "y"
+    if word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
 def normalize_name(value: str) -> str:
     lowered = value.strip().lower()
     lowered = re.sub(r"[&+]", " and ", lowered)
     lowered = re.sub(r"[^a-z0-9]+", " ", lowered)
     lowered = re.sub(r"\s+", " ", lowered).strip()
-    return lowered
+    return " ".join(_depluralize_word(w) for w in lowered.split())
 
 
 def display_name(value: str) -> str:
@@ -133,6 +179,34 @@ def display_name(value: str) -> str:
 
 def item_id_for(normalized: str) -> str:
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:10]
+
+
+_CATEGORY_KEYWORDS: list[tuple[str, list[str]]] = [
+    ("Produce", ["apple", "banana", "orange", "lemon", "lime", "tomato", "onion", "garlic", "ginger", "carrot", "potato", "lettuce", "cucumber", "capsicum", "pepper", "chili", "coriander", "spring onion", "celery", "mushroom", "avocado", "mango", "grape", "berry", "honeydew", "watermelon", "melon", "basil", "parsley", "mint", "spinach", "broccoli", "cauliflower", "zucchini", "eggplant", "corn", "sweet corn", "pea", "bean", "herb"]),
+    ("Meat & Fish", ["chicken", "beef", "pork", "lamb", "fish", "prawn", "shrimp", "salmon", "tuna", "mackerel", "turkey", "duck", "sausage", "bacon", "mince", "steak"]),
+    ("Dairy & Eggs", ["milk", "cheese", "egg", "yogurt", "yoghurt", "butter", "cream", "condensed milk"]),
+    ("Bakery", ["bread", "wrap", "tortilla", "pita", "bun", "roll", "bagel"]),
+    ("Pantry", ["rice", "pasta", "noodle", "flour", "sugar", "salt", "oil", "vinegar", "sauce", "soy", "stock", "broth", "paste", "seasoning", "spice", "cumin", "turmeric", "paprika", "curry", "laksa", "fajita", "mayonnaise", "ketchup", "mustard", "coconut"]),
+    ("Beverages", ["tea", "coffee", "juice", "water", "drink", "soda", "cola"]),
+    ("Snacks & Sweets", ["chocolate", "biscuit", "cookie", "crisp", "chip", "marshmallow", "candy", "sweet", "snack"]),
+]
+_CATEGORY_ORDER = [cat for cat, _ in _CATEGORY_KEYWORDS] + ["Other"]
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def categorize_item(name: str) -> str:
+    normalized = normalize_name(name)
+    for category, keywords in _CATEGORY_KEYWORDS:
+        for keyword in keywords:
+            if re.search(r"\b" + re.escape(keyword) + r"\b", normalized):
+                return category
+    return "Other"
+
+
+def strip_html(text: str) -> str:
+    text = _HTML_TAG_RE.sub("", text)
+    return text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
 
 
 def split_item_tokens(values: list[str]) -> list[str]:
@@ -283,7 +357,6 @@ def resolve_view(state: dict[str, Any], account: str, target: str, thread_id: st
     views = state["views"]
     raw = views.get(key)
     if isinstance(raw, dict):
-        raw.setdefault("pending_ids", [])
         raw.setdefault("mode", VIEW_NEEDED)
         raw.setdefault("account", account)
         raw.setdefault("target", target)
@@ -294,19 +367,17 @@ def resolve_view(state: dict[str, Any], account: str, target: str, thread_id: st
         "target": target,
         "thread_id": thread_id,
         "mode": VIEW_NEEDED,
-        "pending_ids": [],
         "updated_at": utc_now(),
     }
     views[key] = view
     return view
 
 
-def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED, pending_ids: set[str] | None = None, committed: bool = False) -> dict[str, Any]:
+def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED) -> dict[str, Any]:
     needed = sorted_items(state, STATUS_NEEDED)
     have = sorted_items(state, STATUS_HAVE)
     body: list[str] = []
     buttons: list[list[dict[str, str]]] = []
-    pending_ids = pending_ids or set()
 
     if mode == VIEW_ALL:
         body.append("Pantry")
@@ -326,24 +397,29 @@ def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED, pending_ids: 
             body.append("Nothing marked as in stock yet.")
         buttons.append([{"text": "Shopping View", "callback_data": f"{CALLBACK_PREFIX}:{CALLBACK_VIEW}:{VIEW_NEEDED}"}])
     else:
-        if committed:
-            body.append("Updated your pantry.")
-            body.append("")
         body.append("Groceries to buy")
         body.append("")
         if needed:
+            by_cat: dict[str, list] = defaultdict(list)
             for item in needed:
-                body.append(checkbox_line(item["name"], item["id"] in pending_ids))
+                by_cat[categorize_item(item["name"])].append(item)
+            for cat in _CATEGORY_ORDER:
+                cat_items = by_cat.get(cat, [])
+                if not cat_items:
+                    continue
+                body.append(f"<b>{html_escape(cat)}</b>")
+                for item in cat_items:
+                    body.append(f"☐ {html_escape(item['name'])}")
+                body.append("")
         else:
             body.append("Nothing pending.")
-        body.append("")
+            body.append("")
         body.append("Tap an item to mark it bought.")
 
         row: list[dict[str, str]] = []
         for item in needed:
-            checked = item["id"] in pending_ids
             row.append({
-                "text": f"{'☑' if checked else '☐'} {item['name']}",
+                "text": f"☐ {item['name']}",
                 "callback_data": f"{CALLBACK_PREFIX}:{CALLBACK_TOGGLE}:{item['id']}",
             })
             if len(row) == 2:
@@ -426,7 +502,12 @@ def telegram_edit_message(view: dict[str, Any], account: str, text: str, buttons
         "parse_mode": "HTML",
         "reply_markup": {"inline_keyboard": buttons},
     }
-    return telegram_api("editMessageText", payload, account, dry_run=dry_run)
+    try:
+        return telegram_api("editMessageText", payload, account, dry_run=dry_run)
+    except RuntimeError as exc:
+        if "message is not modified" in str(exc).lower():
+            return {"ok": True, "not_modified": True}
+        raise
 
 
 def telegram_delete_message(view: dict[str, Any], account: str, dry_run: bool) -> None:
@@ -449,11 +530,8 @@ def maybe_delete_previous_view(state: dict[str, Any], key: str, account: str, dr
 
 def send_telegram_view(state: dict[str, Any], target: str, account: str, mode: str, thread_id: str | None, dry_run: bool) -> dict[str, Any]:
     view = resolve_view(state, account, target, thread_id)
-    if mode != VIEW_NEEDED:
-        view["pending_ids"] = []
     view["mode"] = mode
-    pending_ids = set(view.get("pending_ids", []))
-    payload = render_message(state, mode=mode, pending_ids=pending_ids)
+    payload = render_message(state, mode=mode)
     key = sender_key(account, target, thread_id)
     if not dry_run:
         maybe_delete_previous_view(state, key, account, dry_run=False)
@@ -482,10 +560,9 @@ def parse_callback(raw: str) -> tuple[str, str] | None:
     return parts[1], parts[2]
 
 
-def edit_existing_view(state: dict[str, Any], target: str, account: str, thread_id: str | None, mode: str, dry_run: bool, committed: bool = False) -> dict[str, Any]:
+def edit_existing_view(state: dict[str, Any], target: str, account: str, thread_id: str | None, mode: str, dry_run: bool) -> dict[str, Any]:
     view = resolve_view(state, account, target, thread_id)
-    pending_ids = set(view.get("pending_ids", []))
-    payload = render_message(state, mode=mode, pending_ids=pending_ids, committed=committed)
+    payload = render_message(state, mode=mode)
     result = telegram_edit_message(view, account, payload["message"], payload["buttons"], dry_run=dry_run)
     view["mode"] = mode
     view["updated_at"] = utc_now()
@@ -498,6 +575,30 @@ def edit_existing_view(state: dict[str, Any], target: str, account: str, thread_
     }
 
 
+def update_all_views(state: dict[str, Any], account: str, dry_run: bool) -> None:
+    """Re-render every active view for this account. Used after an item status change."""
+    views = state.get("views", {})
+    stale_keys: list[str] = []
+    for key, view in list(views.items()):
+        if not isinstance(view, dict):
+            continue
+        if view.get("account") != account:
+            continue
+        if not view.get("message_id"):
+            continue
+        mode = view.get("mode", VIEW_NEEDED)
+        target = view.get("target", "")
+        thread_id = view.get("thread_id")
+        try:
+            edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=mode, dry_run=dry_run)
+        except RuntimeError as exc:
+            msg = str(exc).lower()
+            if "message to edit not found" in msg or "message_id_invalid" in msg or "chat not found" in msg:
+                stale_keys.append(key)
+    for key in stale_keys:
+        views.pop(key, None)
+
+
 def handle_callback(state: dict[str, Any], callback: str, target: str, account: str, thread_id: str | None, dry_run: bool) -> dict[str, Any]:
     parsed = parse_callback(callback)
     if not parsed:
@@ -506,30 +607,32 @@ def handle_callback(state: dict[str, Any], callback: str, target: str, account: 
     view = resolve_view(state, account, target, thread_id)
     if action == CALLBACK_TOGGLE:
         return toggle_pending(state, item_id=value, target=target, account=account, thread_id=thread_id, dry_run=dry_run)
+    if action == CALLBACK_COMMIT:
+        return commit_pending(state, target=target, account=account, thread_id=thread_id, dry_run=dry_run)
     if action == CALLBACK_VIEW:
         mode = VIEW_ALL if value == VIEW_ALL else VIEW_NEEDED
         if view.get("message_id"):
-            if mode != VIEW_NEEDED:
-                view["pending_ids"] = []
             return edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=mode, dry_run=dry_run)
         return send_telegram_view(state, target=target, account=account, mode=mode, thread_id=thread_id, dry_run=dry_run)
     raise RuntimeError("Unsupported callback action.")
 
 
 def toggle_pending(state: dict[str, Any], item_id: str, target: str, account: str, thread_id: str | None, dry_run: bool) -> dict[str, Any]:
+    """Immediately toggle item between needed and have, then update all active views."""
     item = state["items"].get(item_id)
     if not item:
         raise RuntimeError("Grocery item not found.")
-    item["status"] = STATUS_HAVE
+    if item["status"] == STATUS_NEEDED:
+        item["status"] = STATUS_HAVE
+    else:
+        item["status"] = STATUS_NEEDED
     item["updated_at"] = utc_now()
-    view = resolve_view(state, account, target, thread_id)
-    pending_ids = set(view.get("pending_ids", []))
-    pending_ids.discard(item_id)
-    view["pending_ids"] = sorted(pending_ids)
-    return edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=VIEW_NEEDED, dry_run=dry_run, committed=True)
+    update_all_views(state, account, dry_run)
+    return {"ok": True, "item": {"id": item["id"], "name": item["name"], "status": item["status"]}}
 
 
 def commit_pending(state: dict[str, Any], target: str, account: str, thread_id: str | None, dry_run: bool) -> dict[str, Any]:
+    """Mark all pending items as bought and refresh the view. Kept for CLI use."""
     view = resolve_view(state, account, target, thread_id)
     pending_ids = set(view.get("pending_ids", []))
     for item_id in list(pending_ids):
@@ -537,12 +640,6 @@ def commit_pending(state: dict[str, Any], target: str, account: str, thread_id: 
         if item:
             item["status"] = STATUS_HAVE
             item["updated_at"] = utc_now()
-    view["pending_ids"] = []
-    return edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=VIEW_NEEDED, dry_run=dry_run, committed=True)
-
-
-def clear_pending(state: dict[str, Any], target: str, account: str, thread_id: str | None, dry_run: bool) -> dict[str, Any]:
-    view = resolve_view(state, account, target, thread_id)
     view["pending_ids"] = []
     return edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=VIEW_NEEDED, dry_run=dry_run)
 
@@ -580,6 +677,10 @@ def parse_args() -> argparse.Namespace:
     ls = sub.add_parser("list")
     ls.add_argument("--status", choices=[STATUS_NEEDED, STATUS_HAVE, "all"], default="all")
     ls.add_argument("--json", action="store_true")
+
+    stale_cmd = sub.add_parser("stale")
+    stale_cmd.add_argument("--days", type=int, default=14)
+    stale_cmd.add_argument("--json", action="store_true")
 
     render = sub.add_parser("render-telegram")
     render.add_argument("--target", required=True)
@@ -667,7 +768,7 @@ def main() -> None:
         if args.json:
             print_json(data)
         else:
-            print(payload["message"])
+            print(strip_html(payload["message"]))
         return
 
     if args.command == "list":
@@ -679,6 +780,26 @@ def main() -> None:
         else:
             for item in items:
                 print(f"{item['status']}: {item['name']}")
+        return
+
+    if args.command == "stale":
+        threshold = datetime.now(timezone.utc) - timedelta(days=args.days)
+        stale_items = [
+            item for item in state["items"].values()
+            if item.get("status") == STATUS_NEEDED
+            and "updated_at" in item
+            and datetime.fromisoformat(item["updated_at"].replace("Z", "+00:00")) < threshold
+        ]
+        stale_items.sort(key=lambda x: x.get("updated_at", ""))
+        if args.json:
+            print_json({"ok": True, "stale": stale_items, "days": args.days})
+        else:
+            if not stale_items:
+                print(f"No items needed for more than {args.days} days.")
+            else:
+                print(f"Items needed for more than {args.days} days:")
+                for item in stale_items:
+                    print(f"  {item['name']} (since {item['updated_at'][:10]})")
         return
 
     if args.command == "render-telegram":

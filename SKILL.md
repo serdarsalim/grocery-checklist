@@ -43,6 +43,7 @@ Interpret user intent as state changes:
 - `add eggs and milk` -> `needed`
 - `I bought eggs` -> `have`
 - `mark milk bought` -> `have`
+- `I didn't buy X`, `I forgot X`, `put X back` -> `needed` (undo)
 
 This is not a task list. Do not create duplicate items for the same ingredient.
 
@@ -58,6 +59,7 @@ Intent guidance:
 - `i'm shopping now`, `i'm going shopping now`, and similar “I am shopping now” phrasing -> render shopping list immediately
 - `show me the pantry`, `what do I have` -> render pantry view
 - `I bought eggs`, `got milk`, `picked up bread` -> mark items `have`
+- `I didn't buy X`, `I forgot X`, `missed X`, `put X back on the list` -> revert to `needed`
 - `fix olive oil`, merge requests, and rename requests -> canonicalize grocery items
 - `should I go shopping today?` or similar -> inspect current grocery state and answer briefly based on what is still needed
 
@@ -70,7 +72,7 @@ callback_data: gchk:have:abc123def4
 If the callback starts with `gchk:`, call:
 
 ```bash
-bash <skill_dir>/scripts/grocery.sh handle-callback "<raw callback text>" --target "<sender_id>"
+bash <skill_dir>/scripts/grocery.sh handle-callback "<raw callback text>" --target "<sender_id>" --account grocery
 ```
 
 The script will update state and redraw the Telegram checklist.
@@ -111,13 +113,25 @@ bash <skill_dir>/scripts/grocery.sh show
 Render the Telegram checklist:
 
 ```bash
-bash <skill_dir>/scripts/grocery.sh render-telegram --target "1351660348"
+bash <skill_dir>/scripts/grocery.sh render-telegram --target "1351660348" --account grocery
+```
+
+Show items that have been `needed` for more than 14 days:
+
+```bash
+bash <skill_dir>/scripts/grocery.sh stale
+```
+
+Override threshold:
+
+```bash
+bash <skill_dir>/scripts/grocery.sh stale --days 7
 ```
 
 Render pantry view instead:
 
 ```bash
-bash <skill_dir>/scripts/grocery.sh render-telegram --target "1351660348" --mode all
+bash <skill_dir>/scripts/grocery.sh render-telegram --target "1351660348" --account grocery --mode all
 ```
 
 ## Agent rules
