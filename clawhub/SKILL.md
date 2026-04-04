@@ -39,6 +39,8 @@ Use it for:
 - `Add milk and eggs to groceries`
 - `What do I need to buy?`
 - `Mark eggs bought`
+- `I'm shopping now`
+- `Should I go shopping today?`
 
 Wrapper:
 
@@ -55,3 +57,11 @@ Telegram callbacks use:
 ```text
 callback_data: gchk:...
 ```
+
+Behavior guidance:
+- treat natural grocery mutation phrasing as state changes
+- treat `show me the shopping list`, `what do I need to buy`, and “I am shopping now” phrasing as shopping-list renders
+- treat `show me the pantry` and `what do I have` as pantry renders
+- keep normal grocery conversation conversational
+- after a Telegram UI render or callback, do not send a second explanatory message
+- for successful Telegram UI actions, the ideal model output is exactly `NO_REPLY`

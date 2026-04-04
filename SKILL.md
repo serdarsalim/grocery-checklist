@@ -50,6 +50,17 @@ This is not a task list. Do not create duplicate items for the same ingredient.
 
 When the conversation contains Telegram metadata with a `sender_id`, treat that as the Telegram target for checklist rendering.
 
+Stay conversational for normal grocery chat. Do not behave like a rigid command parser.
+
+Intent guidance:
+- `I ran out of salt`, `add eggs`, `put milk in the shopping list` -> mutate grocery state
+- `what do I need to buy`, `show me the shopping list`, `shopping view` -> render shopping list
+- `i'm shopping now`, `i'm going shopping now`, and similar “I am shopping now” phrasing -> render shopping list immediately
+- `show me the pantry`, `what do I have` -> render pantry view
+- `I bought eggs`, `got milk`, `picked up bread` -> mark items `have`
+- `fix olive oil`, merge requests, and rename requests -> canonicalize grocery items
+- `should I go shopping today?` or similar -> inspect current grocery state and answer briefly based on what is still needed
+
 Telegram button clicks arrive as plain text like:
 
 ```text
@@ -63,6 +74,13 @@ bash <skill_dir>/scripts/grocery.sh handle-callback "<raw callback text>" --targ
 ```
 
 The script will update state and redraw the Telegram checklist.
+
+For Telegram UI actions:
+- `render-telegram`
+- pantry render via `--mode all`
+- `gchk:...` callbacks
+
+do not add a second explanatory message after the UI updates. The ideal model output after a successful UI action is exactly `NO_REPLY`.
 
 ## Core commands
 
@@ -106,11 +124,13 @@ bash <skill_dir>/scripts/grocery.sh render-telegram --target "1351660348" --mode
 
 - Prefer direct execution over discussion when intent is clear.
 - If the user asks `what do I need to buy`, render the Telegram checklist when `sender_id` is present; otherwise show the plain text list.
+- If the user indicates they are actively shopping right now, render the Telegram checklist immediately when `sender_id` is present.
 - After changing grocery state in Telegram, refresh the checklist immediately.
 - Keep confirmations brief.
 - If the item naming is obviously the same ingredient with different casing or punctuation, treat it as the same item.
 - If the user asks for a full pantry view, use `--mode all`.
 - If `sender_id` is missing, do not guess a Telegram target. Fall back to text.
+- Never summarize the checklist or pantry UI after a Telegram render or callback.
 
 ## Storage
 
