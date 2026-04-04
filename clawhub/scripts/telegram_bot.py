@@ -13,8 +13,9 @@ from typing import Any
 from urllib import error, parse, request
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
-WRAPPER_PATH = Path.home() / ".openclaw" / "workspace" / "grocery.sh"
+WRAPPER_PATH = SCRIPT_DIR / "grocery.sh"
 BOT_STATE_PATH = Path.home() / ".openclaw" / "data" / "grocery-checklist" / "telegram-bot-state.json"
 
 
@@ -234,11 +235,28 @@ def is_greeting(lower: str) -> bool:
     return lower in greetings
 
 
+def non_grocery_reply(lower: str) -> str | None:
+    if lower in {"nothing atm", "nothing at the moment", "nothing right now", "nope", "nah"}:
+        return "Okay."
+    if re.search(r"\bi (?:do not|don't|dont) want any groceries\b", lower):
+        return "Okay."
+    if re.search(r"\bno groceries\b", lower):
+        return "Okay."
+    if any(token in lower for token in {"fuck", "motherfucker", "wtf", "stupid bot"}):
+        return "I'm here when you need groceries."
+    return None
+
+
 def handle_text(chat_id: str, sender_id: str, text: str) -> None:
     lower = text.lower().strip()
 
     if is_greeting(lower):
         send_text(chat_id, "I'm here.")
+        return
+
+    casual = non_grocery_reply(lower)
+    if casual:
+        send_text(chat_id, casual)
         return
 
     rename = parse_rename_intent(text)
@@ -275,7 +293,7 @@ def handle_text(chat_id: str, sender_id: str, text: str) -> None:
         send_text(chat_id, "Updated pantry.")
         return
 
-    send_text(chat_id, "Tell me what grocery action you want.")
+    send_text(chat_id, "Tell me what you want to add, buy, remove, or show.")
 
 
 def handle_callback(callback: dict[str, Any]) -> None:

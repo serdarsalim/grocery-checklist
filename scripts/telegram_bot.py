@@ -16,6 +16,7 @@ from urllib import error, parse, request
 CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 WRAPPER_PATH = Path.home() / ".openclaw" / "workspace" / "grocery.sh"
 BOT_STATE_PATH = Path.home() / ".openclaw" / "data" / "grocery-checklist" / "telegram-bot-state.json"
+GROCERY_STATE_PATH = Path.home() / ".openclaw" / "data" / "grocery-checklist" / "state.json"
 
 
 def load_config() -> dict[str, Any]:
@@ -99,6 +100,27 @@ def load_offset() -> int | None:
 def save_offset(offset: int) -> None:
     BOT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     BOT_STATE_PATH.write_text(json.dumps({"offset": offset}, indent=2) + "\n", encoding="utf-8")
+
+
+def load_grocery_state() -> dict[str, Any]:
+    if not GROCERY_STATE_PATH.exists():
+        return {"items": {}}
+    try:
+        data = json.loads(GROCERY_STATE_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"items": {}}
+    return data if isinstance(data, dict) else {"items": {}}
+
+
+def needed_item_names() -> list[str]:
+    state = load_grocery_state()
+    items = state.get("items") or {}
+    names = [
+        str(item.get("name", "")).strip()
+        for item in items.values()
+        if isinstance(item, dict) and item.get("status") == "needed"
+    ]
+    return sorted([name for name in names if name], key=str.lower)
 
 
 def split_items(raw: str) -> list[str]:
@@ -234,11 +256,56 @@ def is_greeting(lower: str) -> bool:
     return lower in greetings
 
 
+def non_grocery_reply(lower: str) -> str | None:
+    if lower in {"nothing atm", "nothing at the moment", "nothing right now", "nope", "nah"}:
+        return "Okay."
+    if re.search(r"\bi (?:do not|don't|dont) want any groceries\b", lower):
+        return "Okay."
+    if re.search(r"\bno groceries\b", lower):
+        return "Okay."
+    if any(token in lower for token in {"fuck", "motherfucker", "wtf", "stupid bot"}):
+        return "I'm here when you need groceries."
+    return None
+
+
+def shopping_advice_reply(lower: str) -> str | None:
+    shopping_thought = [
+        "should i go shopping",
+        "should we go shopping",
+        "do i need to go shopping",
+        "do we need to go shopping",
+        "i need to go shopping",
+        "we need to go shopping",
+        "i feel like i need to go shopping",
+        "i feel like we need to go shopping",
+    ]
+    if not any(phrase in lower for phrase in shopping_thought):
+        return None
+
+    needed = needed_item_names()
+    if not needed:
+        return "No. You don't have anything pending right now."
+    preview = ", ".join(needed[:5])
+    if len(needed) > 5:
+        preview += ", ..."
+    return f"Yes. You still need {len(needed)} items: {preview}."
+
+
 def handle_text(chat_id: str, sender_id: str, text: str) -> None:
     lower = text.lower().strip()
 
     if is_greeting(lower):
         send_text(chat_id, "I'm here.")
+        return
+
+    casual = non_grocery_reply(lower)
+    if casual:
+        send_text(chat_id, casual)
+        return
+
+    shopping_advice = shopping_advice_reply(lower)
+    if shopping_advice:
+        send_text(chat_id, shopping_advice)
         return
 
     rename = parse_rename_intent(text)
@@ -275,7 +342,11 @@ def handle_text(chat_id: str, sender_id: str, text: str) -> None:
         send_text(chat_id, "Updated pantry.")
         return
 
-    send_text(chat_id, "Tell me what grocery action you want.")
+    if any(token in lower for token in {"shopping", "grocer", "pantry", "buy"}):
+        send_text(chat_id, "I can show your shopping list or pantry, or update items if you tell me what changed.")
+        return
+
+    send_text(chat_id, "I'm here for groceries. Ask me to show, add, buy, remove, rename, or merge items.")
 
 
 def handle_callback(callback: dict[str, Any]) -> None:
