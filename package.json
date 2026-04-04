@@ -1,0 +1,14 @@
+{
+  "name": "grocery-checklist",
+  "version": "1.0.0",
+  "description": "Instant Telegram button handling for the grocery checklist skill",
+  "type": "module",
+  "main": "index.js",
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "compat": {
+      "pluginApi": ">=2026.4.0",
+      "minGatewayVersion": "2026.4.0"
+    }
+  }
+}
