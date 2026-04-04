@@ -373,7 +373,7 @@ def resolve_view(state: dict[str, Any], account: str, target: str, thread_id: st
     return view
 
 
-def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED) -> dict[str, Any]:
+def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED, session_ids: set[str] | None = None) -> dict[str, Any]:
     needed = sorted_items(state, STATUS_NEEDED)
     have = sorted_items(state, STATUS_HAVE)
     body: list[str] = []
@@ -399,9 +399,11 @@ def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED) -> dict[str, 
     else:
         body.append("Groceries to buy")
         body.append("")
-        if needed:
+        session_have = [item for item in have if session_ids and item["id"] in session_ids]
+        all_items = needed + session_have
+        if all_items:
             by_cat: dict[str, list] = defaultdict(list)
-            for item in needed:
+            for item in all_items:
                 by_cat[categorize_item(item["name"])].append(item)
             for cat in _CATEGORY_ORDER:
                 cat_items = by_cat.get(cat, [])
@@ -409,17 +411,21 @@ def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED) -> dict[str, 
                     continue
                 body.append(f"<b>{html_escape(cat)}</b>")
                 for item in cat_items:
-                    body.append(f"☐ {html_escape(item['name'])}")
+                    if item["status"] == STATUS_NEEDED:
+                        body.append(f"☐ {html_escape(item['name'])}")
+                    else:
+                        body.append(f"<s>☑ {html_escape(item['name'])}</s>")
                 body.append("")
         else:
             body.append("Nothing pending.")
             body.append("")
-        body.append("Tap an item to mark it bought.")
+        body.append("Tap to check off. Tap again to undo.")
 
         row: list[dict[str, str]] = []
-        for item in needed:
+        for item in all_items:
+            label = f"☐ {item['name']}" if item["status"] == STATUS_NEEDED else f"✅ {item['name']}"
             row.append({
-                "text": f"☐ {item['name']}",
+                "text": label,
                 "callback_data": f"{CALLBACK_PREFIX}:{CALLBACK_TOGGLE}:{item['id']}",
             })
             if len(row) == 2:
@@ -531,7 +537,10 @@ def maybe_delete_previous_view(state: dict[str, Any], key: str, account: str, dr
 def send_telegram_view(state: dict[str, Any], target: str, account: str, mode: str, thread_id: str | None, dry_run: bool) -> dict[str, Any]:
     view = resolve_view(state, account, target, thread_id)
     view["mode"] = mode
-    payload = render_message(state, mode=mode)
+    if mode == VIEW_NEEDED:
+        view["session_ids"] = [item["id"] for item in sorted_items(state, STATUS_NEEDED)]
+    session_ids = set(view.get("session_ids") or [])
+    payload = render_message(state, mode=mode, session_ids=session_ids)
     key = sender_key(account, target, thread_id)
     if not dry_run:
         maybe_delete_previous_view(state, key, account, dry_run=False)
@@ -562,7 +571,8 @@ def parse_callback(raw: str) -> tuple[str, str] | None:
 
 def edit_existing_view(state: dict[str, Any], target: str, account: str, thread_id: str | None, mode: str, dry_run: bool) -> dict[str, Any]:
     view = resolve_view(state, account, target, thread_id)
-    payload = render_message(state, mode=mode)
+    session_ids = set(view.get("session_ids") or [])
+    payload = render_message(state, mode=mode, session_ids=session_ids)
     result = telegram_edit_message(view, account, payload["message"], payload["buttons"], dry_run=dry_run)
     view["mode"] = mode
     view["updated_at"] = utc_now()
@@ -611,6 +621,8 @@ def handle_callback(state: dict[str, Any], callback: str, target: str, account: 
         return commit_pending(state, target=target, account=account, thread_id=thread_id, dry_run=dry_run)
     if action == CALLBACK_VIEW:
         mode = VIEW_ALL if value == VIEW_ALL else VIEW_NEEDED
+        if mode == VIEW_NEEDED:
+            view["session_ids"] = [item["id"] for item in sorted_items(state, STATUS_NEEDED)]
         if view.get("message_id"):
             return edit_existing_view(state, target=target, account=account, thread_id=thread_id, mode=mode, dry_run=dry_run)
         return send_telegram_view(state, target=target, account=account, mode=mode, thread_id=thread_id, dry_run=dry_run)
