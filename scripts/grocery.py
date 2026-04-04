@@ -13,7 +13,18 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+import socket
 from urllib import error, parse, request
+
+# Telegram's API servers are reachable via IPv4. Force IPv4 to avoid
+# the multi-second delay that happens when IPv6 is attempted first but
+# unreachable (same workaround OpenClaw's Node networking applies).
+_orig_getaddrinfo = socket.getaddrinfo
+def _ipv4_getaddrinfo(host, port, family=0, *args, **kwargs):
+    results = _orig_getaddrinfo(host, port, family, *args, **kwargs)
+    ipv4 = [r for r in results if r[0] == socket.AF_INET]
+    return ipv4 if ipv4 else results
+socket.getaddrinfo = _ipv4_getaddrinfo
 
 
 STATUS_NEEDED = "needed"
