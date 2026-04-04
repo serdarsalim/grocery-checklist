@@ -391,7 +391,7 @@ def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED, session_ids: 
     buttons: list[list[dict[str, str]]] = []
 
     if mode == VIEW_ALL:
-        body.append("Pantry")
+        body.append("<b>Pantry</b>")
         body.append("")
         all_items = needed + have
         if all_items:
@@ -402,12 +402,13 @@ def render_message(state: dict[str, Any], mode: str = VIEW_NEEDED, session_ids: 
                 cat_items = by_cat.get(cat, [])
                 if not cat_items:
                     continue
+                in_stock = [html_escape(i["name"]) for i in cat_items if i["status"] == STATUS_HAVE]
+                to_buy = [html_escape(i["name"]) for i in cat_items if i["status"] == STATUS_NEEDED]
                 body.append(f"<b>{html_escape(cat)}</b>")
-                for item in cat_items:
-                    if item["status"] == STATUS_NEEDED:
-                        body.append(f"☐ {html_escape(item['name'])}")
-                    else:
-                        body.append(f"✓ {html_escape(item['name'])}")
+                if in_stock:
+                    body.append(f"in stock: {', '.join(in_stock)}")
+                if to_buy:
+                    body.append(f"need to buy: {', '.join(to_buy)}")
                 body.append("")
         else:
             body.append("Nothing here yet.")
