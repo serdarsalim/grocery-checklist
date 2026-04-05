@@ -11,6 +11,8 @@ metadata:
         - bash
         - python3
         - openclaw
+      config:
+        - ~/.openclaw/openclaw.json
 ---
 
 # Grocery Checklist
