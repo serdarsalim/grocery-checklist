@@ -11,6 +11,7 @@ Recommended architecture:
 - use a dedicated `grocery` Telegram account if you want the cleanest separation
 
 This package:
+- includes `index.js` at the skill root so OpenClaw can load the grocery tools and Telegram callback handler
 - reads `~/.openclaw/openclaw.json` for the Telegram `grocery` account token and allowlist when Telegram is enabled
 - writes pantry state to `~/.openclaw/data/grocery-checklist/state.json`
 - writes Telegram polling state to `~/.openclaw/data/grocery-checklist/telegram-bot-state.json`

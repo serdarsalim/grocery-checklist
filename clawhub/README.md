@@ -50,9 +50,10 @@ Optional:
 
 1. Put the skill at `~/.openclaw/skills/grocery-checklist`
 2. Verify `python3` and `openclaw` are installed
-3. Run the wrapper in `scripts/grocery.sh`
-4. Bind a dedicated Telegram bot/account to grocery-only routing if you want Telegram UI
-5. Let OpenClaw handle the conversation layer
+3. Keep the bundled `index.js` in the skill root so OpenClaw can load the grocery tools and Telegram callback handler
+4. Run the wrapper in `scripts/grocery.sh`
+5. Bind a dedicated Telegram bot/account to grocery-only routing if you want Telegram UI
+6. Let OpenClaw handle the conversation layer
 
 Advanced:
 - `scripts/telegram_bot.py` exists as an optional standalone bot implementation, but it is not the primary recommended setup
