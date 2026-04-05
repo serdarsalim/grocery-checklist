@@ -69,4 +69,65 @@ export default function register(api) {
             }
         },
     }, { name: 'render_grocery_view' });
+
+    api.registerTool({
+        name: 'mutate_grocery_items',
+        label: 'Mutate Grocery Items',
+        description: 'Update grocery state directly. Use action "need" to add or mark items as needed, "have" to mark bought/in stock, "remove" to delete, "rename" to rename one item, and "merge" to merge source items into a destination.',
+        parameters: {
+            type: 'object',
+            properties: {
+                action: {
+                    type: 'string',
+                    enum: ['need', 'have', 'remove', 'rename', 'merge'],
+                },
+                items: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Items for need/have/remove actions.',
+                },
+                source: {
+                    type: 'string',
+                    description: 'Source item name for rename.',
+                },
+                destination: {
+                    type: 'string',
+                    description: 'Destination item name for rename/merge.',
+                },
+                sources: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Source item names for merge.',
+                },
+            },
+            required: ['action'],
+        },
+        async execute(_toolCallId, params) {
+            const action = params?.action;
+            try {
+                let args;
+                if (action === 'need' || action === 'have' || action === 'remove') {
+                    const items = Array.isArray(params?.items) ? params.items.filter(Boolean).map(String) : [];
+                    if (!items.length) return { ok: false, error: 'items is required' };
+                    const cmd = action === 'have' ? 'have' : action;
+                    args = [cmd, ...items];
+                } else if (action === 'rename') {
+                    const source = params?.source ? String(params.source) : '';
+                    const destination = params?.destination ? String(params.destination) : '';
+                    if (!source || !destination) return { ok: false, error: 'source and destination are required' };
+                    args = ['rename', source, destination];
+                } else if (action === 'merge') {
+                    const destination = params?.destination ? String(params.destination) : '';
+                    const sources = Array.isArray(params?.sources) ? params.sources.filter(Boolean).map(String) : [];
+                    if (!destination || !sources.length) return { ok: false, error: 'destination and sources are required' };
+                    args = ['merge', destination, ...sources];
+                } else {
+                    return { ok: false, error: `unsupported action: ${String(action)}` };
+                }
+                return callGrocery(args);
+            } catch (err) {
+                return { ok: false, error: String(err) };
+            }
+        },
+    }, { name: 'mutate_grocery_items' });
 }

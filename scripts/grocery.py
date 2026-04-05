@@ -193,11 +193,12 @@ def item_id_for(normalized: str) -> str:
 
 
 _CATEGORY_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("Produce", ["apple", "banana", "orange", "lemon", "lime", "tomato", "onion", "garlic", "ginger", "carrot", "potato", "lettuce", "cucumber", "capsicum", "pepper", "chili", "coriander", "spring onion", "celery", "mushroom", "avocado", "mango", "grape", "berry", "honeydew", "watermelon", "melon", "basil", "parsley", "mint", "spinach", "broccoli", "cauliflower", "zucchini", "eggplant", "corn", "sweet corn", "pea", "bean", "herb"]),
+    ("Fruits & Vegetables", ["apple", "banana", "orange", "lemon", "lime", "tomato", "onion", "garlic", "ginger", "carrot", "potato", "lettuce", "cucumber", "capsicum", "pepper", "chili", "coriander", "spring onion", "celery", "mushroom", "avocado", "mango", "grape", "berry", "honeydew", "watermelon", "melon", "basil", "parsley", "mint", "spinach", "broccoli", "cauliflower", "zucchini", "eggplant", "corn", "sweet corn", "pea", "bean", "herb"]),
     ("Meat & Fish", ["chicken", "beef", "pork", "lamb", "fish", "prawn", "shrimp", "salmon", "tuna", "mackerel", "turkey", "duck", "sausage", "bacon", "mince", "steak"]),
     ("Dairy & Eggs", ["milk", "cheese", "egg", "yogurt", "yoghurt", "butter", "cream", "condensed milk"]),
     ("Bakery", ["bread", "wrap", "tortilla", "pita", "bun", "roll", "bagel"]),
-    ("Pantry", ["rice", "pasta", "noodle", "flour", "sugar", "salt", "oil", "vinegar", "sauce", "soy", "stock", "broth", "paste", "seasoning", "spice", "cumin", "turmeric", "paprika", "curry", "laksa", "fajita", "mayonnaise", "ketchup", "mustard", "coconut"]),
+    ("Staples", ["rice", "pasta", "noodle", "flour", "sugar", "salt", "oil", "vinegar", "sauce", "soy", "stock", "broth", "paste", "mayonnaise", "ketchup", "mustard", "coconut"]),
+    ("Spices", ["seasoning", "spice", "cumin", "turmeric", "paprika", "curry", "laksa", "fajita", "chili flake", "chilli flake"]),
     ("Beverages", ["tea", "coffee", "juice", "water", "drink", "soda", "cola"]),
     ("Snacks & Sweets", ["chocolate", "biscuit", "cookie", "crisp", "chip", "marshmallow", "candy", "sweet", "snack"]),
 ]

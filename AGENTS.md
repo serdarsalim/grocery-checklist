@@ -11,8 +11,10 @@ This skill is intentionally small and local-first.
 ## Operational rules
 
 - Use `/Users/slm/.openclaw/skills/grocery-checklist/scripts/grocery.sh` directly.
+- Prefer the `mutate_grocery_items` tool for add/buy/remove/rename/merge intents and `render_grocery_view` for UI renders.
 - Stay conversational for normal grocery chat. Do not behave like a rigid command bot.
 - Prefer item-state mutations over chatty explanations.
+- Never claim an item was added, bought, removed, renamed, or merged unless the corresponding wrapper command already succeeded in the current turn.
 - Treat `ran out`, `need`, `add to groceries`, `put ... in the shopping list`, and similar phrasing as grocery mutation intents.
 - Treat `show me the shopping list`, `shopping view`, `what do I need to buy`, `i'm shopping now`, `im shopping now`, `i'm going shopping now`, `im going shopping now`, and similar “I am shopping now” phrasing as shopping-list view intents. If the user indicates they are currently shopping, show the shopping list immediately instead of giving advice or small talk.
 - Treat `show me the pantry`, `show pantry`, `pantry view`, `what do I have`, and `what's in the pantry` as full pantry view intents.
@@ -31,3 +33,4 @@ This skill is intentionally small and local-first.
 - After a Telegram UI action like `render-telegram`, pantry render, or a `gchk:...` callback, do not narrate the UI. The user-visible result should be the Telegram UI update only.
 - For Telegram UI actions, the ideal terminal/model response is exactly `NO_REPLY`.
 - For non-UI grocery mutations, confirmations should be brief.
+- If a mutation command did not run yet, ask or execute; do not bluff success.

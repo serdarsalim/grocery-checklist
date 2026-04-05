@@ -59,7 +59,9 @@ callback_data: gchk:...
 ```
 
 Behavior guidance:
+- when tools are available, use `mutate_grocery_items` for state changes and `render_grocery_view` for Telegram UI
 - treat natural grocery mutation phrasing as state changes
+- for mutation intents, run the mutation first; do not render as a substitute for the mutation
 - treat `show me the shopping list`, `what do I need to buy`, and “I am shopping now” phrasing as shopping-list renders
 - treat `show me the pantry` and `what do I have` as pantry renders
 - keep normal grocery conversation conversational

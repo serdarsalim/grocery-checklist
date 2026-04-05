@@ -34,6 +34,10 @@ bash <skill_dir>/scripts/grocery.sh ...
 
 Do not use ACP, sessions, or memory files for grocery state.
 
+When tools are available:
+- use `mutate_grocery_items` for state changes
+- use `render_grocery_view` for Telegram shopping/pantry UI
+
 ## State model
 
 Items only have two meaningful states:
@@ -45,6 +49,10 @@ Interpret user intent as state changes:
 - `add eggs and milk` -> `needed`
 - `I bought eggs` -> `have`
 - `mark milk bought` -> `have`
+
+Execution safety rule:
+- never say a grocery mutation succeeded unless the wrapper command for that mutation has already succeeded in the current turn
+- do not “acknowledge and assume” for add/buy/remove/rename/merge actions
 - `I didn't buy X`, `I forgot X`, `put X back` -> `needed` (undo)
 
 This is not a task list. Do not create duplicate items for the same ingredient.
@@ -57,6 +65,7 @@ Stay conversational for normal grocery chat. Do not behave like a rigid command 
 
 Intent guidance:
 - `I ran out of salt`, `add eggs`, `put milk in the shopping list` -> mutate grocery state
+- for mutation intents, run `mutate_grocery_items` first; do not render as a substitute for the mutation
 - `what do I need to buy`, `show me the shopping list`, `shopping view` -> render shopping list
 - `i'm shopping now`, `i'm going shopping now`, and similar “I am shopping now” phrasing -> render shopping list immediately
 - `show me the pantry`, `what do I have` -> render pantry view
@@ -143,6 +152,7 @@ bash <skill_dir>/scripts/grocery.sh render-telegram --account grocery --mode all
 - If the user indicates they are actively shopping right now, render the Telegram checklist immediately when `sender_id` is present.
 - After changing grocery state in Telegram, refresh the checklist immediately.
 - Keep confirmations brief.
+- Never confirm a grocery mutation that has not actually been executed yet.
 - If the item naming is obviously the same ingredient with different casing or punctuation, treat it as the same item.
 - If the user asks for a full pantry view, use `--mode all`.
 - Never fall back to describing the list in text. If render fails, say only "Couldn't render the view."
