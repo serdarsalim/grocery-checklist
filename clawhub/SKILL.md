@@ -1,7 +1,7 @@
 ---
 name: grocery-checklist
 description: "Persistent pantry-backed grocery checklist for OpenClaw, intended for normal conversational use with Telegram shopping-list UI."
-version: 1.0.0
+version: 1.1.3
 user-invocable: true
 metadata:
   openclaw:

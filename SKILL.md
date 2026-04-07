@@ -1,7 +1,7 @@
 ---
 name: grocery-checklist
 description: "Persistent pantry-backed grocery checklist for OpenClaw, with Telegram inline buttons for marking items bought. Use when the user says they ran out of something, bought something, wants to see what groceries are needed, or taps grocery checklist buttons in Telegram."
-version: 1.0.0
+version: 1.1.3
 user-invocable: true
 metadata:
   openclaw:
